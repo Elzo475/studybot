@@ -1,3 +1,9 @@
+const express = require('express');
+const app = express();
+
+app.get('/', (req, res) => res.send('Bot is alive!'));
+
+app.listen(3000, () => console.log('Server running on port 3000'));
 const { Client, GatewayIntentBits } = require('discord.js');
 const cron = require('node-cron');
 const fs = require('fs');
