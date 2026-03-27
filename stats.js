@@ -28,6 +28,21 @@ async function updateUserStats(discordId, sessionLength) {
     const now = new Date();
     const user = await users.findOne({ discordId });
 
+    const daily = getCollection('daily_stats');
+
+    const today = new Date().toISOString().split('T')[0];
+
+    await daily.updateOne(
+        { discordId, date: today },
+        {
+            $inc: {
+                sessions: 1,
+                hours: sessionLength
+            }
+        },
+        { upsert: true }
+    );
+
     if (!user) {
         const newUser = {
             discordId,
