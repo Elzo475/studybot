@@ -5,9 +5,14 @@ function formatDayKey(date = new Date()) {
     return date.toISOString().slice(0, 10);
 }
 
+function formatTimestamp(timestamp) {
+    if (!timestamp) return 'Not started';
+    return `<t:${Math.floor(timestamp / 1000)}:R>`;
+}
+
 function getPeriodMinutes(dailyStudy, days) {
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    return Object.entries(dailyStudy).reduce((total, [day, minutes]) => {
+    return Object.entries(dailyStudy || {}).reduce((total, [day, minutes]) => {
         const dayTime = new Date(day).getTime();
         if (!Number.isNaN(dayTime) && dayTime >= cutoff) {
             return total + minutes;
@@ -21,126 +26,180 @@ function buildStatusEmbed(session) {
     const elapsed = session.startTime ? Math.floor((now - session.startTime) / 60000) : 0;
     const remaining = Math.max(session.durationMinutes - elapsed, 0);
 
-    const embed = new EmbedBuilder()
-        .setTitle('🎯 Focus Session Status')
+    return new EmbedBuilder()
+        .setTitle(`🎯 Focus Session • ${session.id}`)
         .setColor(0x57f287)
-        .setDescription(session.isPrivate ? 'Private premium session' : 'Open session for everyone to join')
+        .setDescription(session.isPrivate ? 'Private session. The host can invite members manually.' : 'Open session. Join with the session ID or buttons.')
         .addFields(
             { name: 'Host', value: `<@${session.hostId}>`, inline: true },
-            { name: 'Duration', value: `${session.durationMinutes} minutes`, inline: true },
-            { name: 'Started', value: session.startTime ? '<t:' + Math.floor(session.startTime / 1000) + ':R>' : 'Starting soon', inline: true },
+            { name: 'Session ID', value: `${session.id}`, inline: true },
+            { name: 'Mode', value: session.isPrivate ? 'Private' : 'Public', inline: true },
+            { name: 'Voice Channel', value: session.voiceChannelId ? `<#${session.voiceChannelId}>` : 'Not assigned', inline: true },
+            { name: 'Text Channel', value: session.textChannelId ? `<#${session.textChannelId}>` : 'Not assigned', inline: true },
             { name: 'Participants', value: `${session.participants.size}`, inline: true },
-            { name: 'Elapsed', value: `${elapsed} min`, inline: true },
-            { name: 'Remaining', value: `${remaining} min`, inline: true }
+            { name: 'Duration', value: `${session.durationMinutes} minutes`, inline: true },
+            { name: 'Started', value: formatTimestamp(session.startTime), inline: true },
+            { name: 'Remaining', value: session.started ? `${remaining} min` : 'Starting soon', inline: true }
         )
         .setTimestamp();
-
-    return embed;
 }
 
-function buildSessionActionRow() {
+function buildSessionActionRow(sessionId) {
     return new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-            .setCustomId('join_session')
+            .setCustomId(`join_session:${sessionId}`)
             .setLabel('Join Session')
             .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
-            .setCustomId('leave_session')
+            .setCustomId(`leave_session:${sessionId}`)
             .setLabel('Leave Session')
             .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
-            .setCustomId('confirm_session')
-            .setLabel('✅ I completed session')
+            .setCustomId(`confirm_session:${sessionId}`)
+            .setLabel('✅ Confirm Completion')
             .setStyle(ButtonStyle.Success)
     );
 }
 
 function buildSessionSummaryEmbed(session, recordedMinutes) {
     return new EmbedBuilder()
-        .setTitle('✅ Session Complete')
+        .setTitle(`✅ Session Complete • ${session.id}`)
         .setColor(0x0099ff)
-        .setDescription(`The ${session.durationMinutes}-minute focus session has finished.`)
+        .setDescription(`Your ${session.durationMinutes}-minute focus session has finished.`)
         .addFields(
             { name: 'Host', value: `<@${session.hostId}>`, inline: true },
             { name: 'Participants', value: `${session.participants.size}`, inline: true },
-            { name: 'Credited time', value: `${formatMinutes(recordedMinutes)}`, inline: true }
+            { name: 'Credited Time', value: `${formatMinutes(recordedMinutes)}`, inline: true }
         )
-        .setFooter({ text: 'Click the completion button to confirm your session and receive feedback.' })
+        .setFooter({ text: 'Great work! Your study time has been recorded.' })
         .setTimestamp();
 }
 
-function buildBasicStatsEmbed(user, userData) {
-    return new EmbedBuilder()
-        .setTitle(`📊 ${user.username}'s Study Stats`)
-        .setColor(0x5865f2)
-        .addFields(
-            { name: 'Check-ins', value: `${userData.checkins}`, inline: true },
-            { name: 'Streak', value: `${userData.streak} days`, inline: true },
-            { name: 'Sessions Joined', value: `${userData.sessions}`, inline: true },
-            { name: 'Study Time', value: `${formatMinutes(userData.totalStudyMinutes)}`, inline: true }
-        )
-        .setFooter({ text: 'Upgrade to Premium for advanced session analytics and monthly summaries.' })
-        .setTimestamp();
-}
-
-function buildPremiumStatsEmbed(user, userData, rank = 0) {
+function buildStatsEmbed(user, userData, rank = 0) {
     const weekly = getPeriodMinutes(userData.dailyStudy, 7);
     const monthly = getPeriodMinutes(userData.dailyStudy, 30);
     const average = userData.createdAt ? Math.round(userData.totalStudyMinutes / Math.max(1, Math.ceil((Date.now() - userData.createdAt) / (1000 * 60 * 60 * 24)))) : 0;
 
-    return new EmbedBuilder()
-        .setTitle(`🌟 Premium Stats for ${user.username}`)
-        .setColor(0xffc107)
+    const embed = new EmbedBuilder()
+        .setTitle(`📊 ${user.username}'s Study Stats`)
+        .setColor(0x5865f2)
         .addFields(
             { name: 'Total Study Time', value: `${formatMinutes(userData.totalStudyMinutes)}`, inline: true },
-            { name: 'Session Count', value: `${userData.sessions}`, inline: true },
+            { name: 'Sessions Completed', value: `${userData.sessions}`, inline: true },
             { name: 'Check-ins', value: `${userData.checkins}`, inline: true },
             { name: 'Current Streak', value: `${userData.streak} days`, inline: true },
             { name: 'Weekly Total', value: `${formatMinutes(weekly)}`, inline: true },
             { name: 'Monthly Total', value: `${formatMinutes(monthly)}`, inline: true },
             { name: 'Average / day', value: `${formatMinutes(average)}`, inline: true },
-            { name: 'Rank', value: rank > 0 ? `#${rank}` : '—', inline: true }
+            { name: 'Leaderboard Rank', value: rank > 0 ? `#${rank}` : 'Unranked', inline: true }
         )
-        .setFooter({ text: 'Premium unlocks private sessions, advanced reminders, and auto role rewards.' })
         .setTimestamp();
-}
-
-function buildLeaderboardEmbed(sorted, isPremium) {
-    const embed = new EmbedBuilder()
-        .setTitle('🏆 StudyBot Leaderboard')
-        .setColor(0xea580c)
-        .setDescription(isPremium ? 'Premium leaderboard: streak, sessions, study time' : 'Free leaderboard: top streaks only');
-
-    const streakLines = sorted.slice(0, 5).map((item, index) => {
-        const userId = item[0];
-        const userData = item[1];
-        return `**${index + 1}.** <@${userId}> — ${userData.streak || 0} days`;
-    });
-
-    embed.addFields({ name: 'Top Streaks', value: streakLines.length ? streakLines.join('\n') : 'No data yet' });
-
-    if (isPremium) {
-        const studyLines = sorted
-            .sort((a, b) => (b[1].totalStudyMinutes || 0) - (a[1].totalStudyMinutes || 0))
-            .slice(0, 5)
-            .map((item, index) => {
-                const userId = item[0];
-                const userData = item[1];
-                return `**${index + 1}.** <@${userId}> — ${formatMinutes(userData.totalStudyMinutes)}`;
-            });
-
-        embed.addFields({ name: 'Top Study Time', value: studyLines.length ? studyLines.join('\n') : 'No data yet' });
-    }
 
     return embed;
 }
 
-function buildPremiumRequiredEmbed() {
+function buildLeaderboardEmbed(category, sortedEntries, userId) {
+    const titleMap = {
+        streaks: 'Top Streaks',
+        alltime: 'Top Total Study Time',
+        weekly: 'Top Weekly Study Time',
+        monthly: 'Top Monthly Study Time'
+    };
+
+    const descriptionMap = {
+        streaks: 'Ranked by current streak.',
+        alltime: 'Total study time across all sessions.',
+        weekly: 'Study time in the last 7 days.',
+        monthly: 'Study time in the last 30 days.'
+    };
+
+    const lines = sortedEntries.slice(0, 5).map((item, index) => {
+        const userIdEntry = item[0];
+        const userData = item[1];
+        let value = '';
+        if (category === 'streaks') {
+            value = `${userData.streak || 0} days`;
+        } else if (category === 'alltime') {
+            value = formatMinutes(userData.totalStudyMinutes || 0);
+        } else if (category === 'weekly') {
+            value = formatMinutes(userData.weekly || 0);
+        } else if (category === 'monthly') {
+            value = formatMinutes(userData.monthly || 0);
+        }
+        return `**${index + 1}.** <@${userIdEntry}> — ${value}`;
+    });
+
+    const topRank = sortedEntries.findIndex(entry => entry[0] === userId) + 1;
+    const embed = new EmbedBuilder()
+        .setTitle('🏆 StudyBot Leaderboard')
+        .setColor(0xea580c)
+        .setDescription(descriptionMap[category] || 'Leaderboard results')
+        .addFields(
+            { name: titleMap[category] || 'Top Results', value: lines.length ? lines.join('\n') : 'No data yet' },
+            { name: 'Your Rank', value: topRank > 0 ? `#${topRank}` : 'Not ranked yet', inline: false }
+        )
+        .setTimestamp();
+
+    return embed;
+}
+
+function buildLeaderboardActionRow() {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('leaderboard_streaks')
+            .setLabel('Streaks')
+            .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+            .setCustomId('leaderboard_alltime')
+            .setLabel('All Time')
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('leaderboard_weekly')
+            .setLabel('This Week')
+            .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+            .setCustomId('leaderboard_monthly')
+            .setLabel('This Month')
+            .setStyle(ButtonStyle.Primary)
+    );
+}
+
+function buildTaskListEmbed(tasks, username) {
+    const lines = tasks.length
+        ? tasks.map(task => `**${task.id}** • ${task.title}${task.completed ? ' ✅' : ''}${task.dueDate ? ` • due ${task.dueDate}` : ''}${task.description ? `\n_${task.description}_` : ''}`).join('\n\n')
+        : 'You have no tasks yet.';
+
     return new EmbedBuilder()
-        .setTitle('🔒 Premium Feature')
-        .setDescription('This command is reserved for Premium members. Upgrade to unlock private sessions, goals, advanced stats, and role rewards.')
-        .setColor(0xff3864)
-        .setFooter({ text: 'Contact an admin to add the Premium role.' })
+        .setTitle(`📝 ${username}'s Tasks`)
+        .setColor(0x5865f2)
+        .setDescription(lines)
+        .setTimestamp();
+}
+
+function buildReminderListEmbed(reminders, username) {
+    const lines = reminders.length
+        ? reminders.map(reminder => `**${reminder.id}** • ${reminder.text} • <t:${Math.floor(reminder.dueAt / 1000)}:f>`).join('\n\n')
+        : 'You have no reminders set.';
+
+    return new EmbedBuilder()
+        .setTitle(`⏰ ${username}'s Reminders`)
+        .setColor(0x5865f2)
+        .setDescription(lines)
+        .setTimestamp();
+}
+
+function buildHelpEmbed() {
+    return new EmbedBuilder()
+        .setTitle('📚 StudyBot Commands')
+        .setColor(0x0099ff)
+        .setDescription('Everything is free now. Use the commands below to manage sessions, goals, tasks, reminders, and study stats.')
+        .addFields(
+            { name: 'Session Management', value: '**!startsession [duration] [private|public] [voiceChannel]** • Start a new session\n**!join <sessionId>** • Join a session by ID\n**!status <sessionId>** • Resend the session status\n**!endsession <sessionId>** • End your session\n**!createvc** • Create a private voice + chat room\n**!deletevc** • Delete your private room\n**!renamevc <name>** • Rename your private space\n**!invite <sessionId> @user** • Grant access to a private session', inline: false },
+            { name: 'Goals & Tasks', value: '**!goal <goal> /by YYYY-MM-DD /desc <description>** • Set a dated goal\n**!done** • Mark your goal complete\n**!task add <task> /by YYYY-MM-DD /desc <description>** • Add a task\n**!task list** • List your tasks\n**!task done <id>** • Mark task complete\n**!task remove <id>** • Remove a task', inline: false },
+            { name: 'Reminders', value: '**!reminder add <duration|date> <message>** • Set a reminder\n**!reminder list** • List your reminders\n**!reminder remove <id>** • Remove a reminder', inline: false },
+            { name: 'Stats & Leaderboard', value: '**!checkin** • Daily check-in\n**!stats** • Show your progress\n**!leaderboard** • View the leaderboard with category buttons', inline: false }
+        )
+        .setFooter({ text: 'Tip: use session IDs when joining and inviting members.' })
         .setTimestamp();
 }
 
@@ -159,13 +218,25 @@ function buildInfoEmbed(title, message) {
         .setTimestamp();
 }
 
+function buildPremiumRequiredEmbed() {
+    return new EmbedBuilder()
+        .setTitle('🔒 Premium Feature')
+        .setDescription('This command is reserved for Premium members. Upgrade to unlock private sessions, goals, advanced stats, and role rewards.')
+        .setColor(0xff3864)
+        .setFooter({ text: 'Contact an admin to add the Premium role.' })
+        .setTimestamp();
+}
+
 module.exports = {
     buildStatusEmbed,
     buildSessionActionRow,
     buildSessionSummaryEmbed,
-    buildBasicStatsEmbed,
-    buildPremiumStatsEmbed,
+    buildStatsEmbed,
     buildLeaderboardEmbed,
+    buildLeaderboardActionRow,
+    buildTaskListEmbed,
+    buildReminderListEmbed,
+    buildHelpEmbed,
     buildPremiumRequiredEmbed,
     buildErrorEmbed,
     buildInfoEmbed,

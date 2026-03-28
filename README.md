@@ -1,59 +1,96 @@
 # StudyBot
 
-A Discord study bot with free and premium features for focus sessions, check-ins, stats, and voice channel support.
+A Discord study bot for study sessions, goals, tasks, reminders, stats, and voice channel support.
 
-## Free User Commands
+## What Changed
 
-- `!checkin`
-  - Daily check-in to maintain streaks.
-  - Free users earn streak badges and basic progress tracking.
+- All features are free and accessible to everyone.
+- Premium gating has been disabled temporarily, while core structures remain in place for later reactivation.
+- New commands now support private study rooms, session IDs, multi-session handling, tasks, reminders, and leaderboard categories.
 
-- `!join`
-  - Join an active focus session.
-  - Free users can participate in public sessions.
+## Available Commands
 
-- `!stats`
-  - View your basic study stats.
-  - Includes check-ins, sessions joined, streak, and total study time.
+### Session & Voice
 
-- `!leaderboard`
-  - See the top streaks leaderboard.
-  - Displays ranking with clear embed formatting.
+- `!startsession [duration] [private|public] [voiceChannel]`
+  - Start a new focus session.
+  - Default duration is 50 minutes.
+  - Use `private` to create or use a private study room.
+  - Use `public` to assign a public voice channel.
 
-- `!help`
-  - Shows available bot commands.
+- `!join <sessionId>`
+  - Join a session by its ID.
+  - Private sessions send a join request to the host.
 
-## Premium User Commands
+- `!status <sessionId>`
+  - Resend the status of a session.
 
-- `!goal <your goal>`
-  - Set a premium study goal.
-  - Premium users receive smart reminders and goal tracking.
-
-- `!done`
-  - Mark your active premium goal as completed.
-
-- `!startsession [duration] [private]`
-  - Start a premium focus session.
-  - Optional duration in minutes (default 50, minimum 10, maximum 180).
-  - Add `private` to create a private premium-only session.
+- `!endsession <sessionId>`
+  - End your own session and record study time.
 
 - `!createvc`
-  - Create a private voice channel for study sessions.
+  - Create a private category with a voice channel and text channel.
 
 - `!deletevc`
-  - Delete your private channel.
+  - Delete your private study room.
 
 - `!renamevc <name>`
-  - Rename your premium private voice channel.
+  - Rename your private study room.
+
+- `!invite <sessionId> @user`
+  - Invite a user into your private session.
+
+### Goals & Tasks
+
+- `!goal <goal> /by YYYY-MM-DD /desc <description>`
+  - Set a study goal with an optional due date and description.
+
+- `!done`
+  - Mark your current goal as completed.
+
+- `!task add <task> /by YYYY-MM-DD /desc <description>`
+  - Add a daily task with optional due date and description.
+
+- `!task list`
+  - List your open tasks.
+
+- `!task done <id>`
+  - Mark a task as completed.
+
+- `!task remove <id>`
+  - Remove a task.
+
+### Reminders
+
+- `!reminder add <duration|date> <message>`
+  - Set a reminder for a duration like `30m` or a date like `2026-04-01T18:00`.
+
+- `!reminder list`
+  - List your reminders.
+
+- `!reminder remove <id>`
+  - Remove a reminder.
+
+### Stats & Leaderboard
+
+- `!checkin`
+  - Daily check-in for streak tracking.
 
 - `!stats`
-  - View advanced stats with weekly/monthly totals and rank.
+  - View your study stats, streaks, total study time, and rank.
+
+- `!leaderboard`
+  - View leaderboard categories using buttons for streaks, all time, weekly, and monthly.
+
+- `!help`
+  - Show this command list.
 
 ## Notes
 
-- Free users can join public focus sessions, use `!checkin`, view basic stats, and participate in the leaderboard.
-- Premium users unlock goals, private/custom sessions, private VC creation, advanced analytics, and automatic streak role rewards.
-- The bot uses embeds for cleaner output and reduces spam with button interactions and reminders.
+- Private rooms are created in a dedicated category with a linked chat channel.
+- Session IDs let people join by ID and request access for private sessions.
+- Voice activity is tracked across all voice channels for study time.
+- Private rooms are cleaned up automatically after inactivity.
 
 ## Running the Bot
 
@@ -62,7 +99,7 @@ A Discord study bot with free and premium features for focus sessions, check-ins
    npm install
    ```
 
-2. Create a `.env` file with your bot token and optionally a guild ID:
+2. Create a `.env` file with your bot token and optional guild ID:
    ```env
    TOKEN=your-discord-bot-token
    GUILD_ID=your-guild-id

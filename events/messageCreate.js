@@ -1,5 +1,5 @@
 const handlers = require('../commands/handlers');
-const session = require('../utils/session');
+const embeds = require('../utils/embeds');
 
 module.exports = (client) => {
     client.on('messageCreate', async (message) => {
@@ -18,7 +18,13 @@ module.exports = (client) => {
             case 'startsession':
                 return handlers.handleStartSessionCommand(message, args, client);
             case 'join':
-                return handlers.handleJoinCommand(message);
+                return handlers.handleJoinCommand(message, args, client);
+            case 'status':
+                return handlers.handleStatusCommand(message, args);
+            case 'endsession':
+                return handlers.handleEndSessionCommand(message, args, client);
+            case 'invite':
+                return handlers.handleInviteCommand(message, args, client);
             case 'stats':
                 return handlers.handleStatsCommand(message);
             case 'leaderboard':
@@ -29,8 +35,12 @@ module.exports = (client) => {
                 return handlers.handleDeleteVCCommand(message);
             case 'renamevc':
                 return handlers.handleRenameVCCommand(message, args);
+            case 'task':
+                return handlers.handleTaskCommand(message, args);
+            case 'reminder':
+                return handlers.handleReminderCommand(message, args);
             case 'help':
-                return message.reply({ content: 'Use commands: !checkin, !join, !stats, !leaderboard, !goal (Premium), !startsession (Premium), !createvc (Premium), !deletevc (Premium), !renamevc (Premium).' });
+                return message.reply({ embeds: [embeds.buildHelpEmbed()] });
             default:
                 return message.reply({ content: 'Unknown command. Try `!help` for a list of available study bot commands.' });
         }
