@@ -1,9 +1,18 @@
 const handlers = require('../commands/handlers');
 const embeds = require('../utils/embeds');
+const storage = require('../utils/storage');
 
 module.exports = (client) => {
     client.on('messageCreate', async (message) => {
-        if (message.author.bot || !message.guild || !message.content.startsWith('!')) return;
+        if (message.author.bot || !message.guild) return;
+
+        const ownerEntry = Object.entries(storage.data).find(([, userData]) => userData.privateTextId === message.channel.id);
+        if (ownerEntry) {
+            ownerEntry[1].privateCategoryLastActive = Date.now();
+            storage.saveData().catch(() => null);
+        }
+
+        if (!message.content.startsWith('!')) return;
 
         const args = message.content.slice(1).trim().split(/\s+/);
         const command = args.shift().toLowerCase();

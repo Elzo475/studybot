@@ -124,22 +124,24 @@ function buildLeaderboardEmbed(category, sortedEntries, userId) {
     };
 
     const lines = sortedEntries.slice(0, 5).map((item, index) => {
-        const userIdEntry = item[0];
-        const userData = item[1];
+        const userIdEntry = Array.isArray(item) ? item[0] : item.userId;
+        const userData = Array.isArray(item) ? item[1] : item.userData;
+        const weekly = userData.weekly ?? getPeriodMinutes(userData.dailyStudy, 7);
+        const monthly = userData.monthly ?? getPeriodMinutes(userData.dailyStudy, 30);
         let value = '';
         if (category === 'streaks') {
             value = `${userData.streak || 0} days`;
         } else if (category === 'alltime') {
             value = formatMinutes(userData.totalStudyMinutes || 0);
         } else if (category === 'weekly') {
-            value = formatMinutes(userData.weekly || 0);
+            value = formatMinutes(weekly || 0);
         } else if (category === 'monthly') {
-            value = formatMinutes(userData.monthly || 0);
+            value = formatMinutes(monthly || 0);
         }
         return `**${index + 1}.** <@${userIdEntry}> — ${value}`;
     });
 
-    const topRank = sortedEntries.findIndex(entry => entry[0] === userId) + 1;
+    const topRank = sortedEntries.findIndex(entry => (Array.isArray(entry) ? entry[0] : entry.userId) === userId) + 1;
     const embed = new EmbedBuilder()
         .setTitle('🏆 StudyBot Leaderboard')
         .setColor(0xea580c)
@@ -204,7 +206,12 @@ function buildHelpEmbed() {
         .setColor(0x0099ff)
         .setDescription('Everything is free now. Use the commands below to manage sessions, rooms, goals, tasks, reminders, and study stats.')
         .addFields(
-            { name: 'Session & Room Management', value: '**!startsession [duration] [private|public] [voiceChannel]** • Start a new focus session\n**!pomodoro start [private|public] [sets]** • Start a Pomodoro session\n**!session status [sessionId]** • Show a session status\n**!session pause [sessionId]** • Pause an active session\n**!session resume [sessionId]** • Resume a paused session\n**!session cancel [sessionId]** • Cancel a session\n**!join <sessionId>** • Join a session by ID\n**!endsession <sessionId>** • End your session\n**!createroom** • Create a private study room\n**!deleteroom** • Delete your private room\n**!renameroom <name>** • Rename your private room\n**!invite <sessionId> @user** • Invite a user to a private session', inline: false },
+            { name: 'Session & Room Management', value: '**!startsession [duration] [private|public] [voiceChannel]** • Start a new focus session\n**!pomodoro list** • Show your saved Pomodoro sets
+**!pomodoro add <study> <rest>** • Add a new Pomodoro set
+**!pomodoro update <setNumber> <study> <rest>** • Update an existing set
+**!pomodoro remove <setNumber>** • Remove a pomodoro set
+**!pomodoro clear** • Clear all pomodoro sets
+**!pomodoro start [private|public]** • Start a Pomodoro session using configured sets\n**!session status [sessionId]** • Show a session status\n**!session pause [sessionId]** • Pause an active session\n**!session resume [sessionId]** • Resume a paused session\n**!session cancel [sessionId]** • Cancel a session\n**!join <sessionId>** • Join a session by ID\n**!endsession <sessionId>** • End your session\n**!createroom** • Create a private study room\n**!deleteroom** • Delete your private room\n**!renameroom <name>** • Rename your private room\n**!invite <sessionId> @user** • Invite a user to a private session', inline: false },
             { name: 'Goals & Tasks', value: '**!goal <goal> /by YYYY-MM-DD /desc <description>** • Set a goal\n**!done** • Mark a goal complete\n**!task add <task> /by YYYY-MM-DD /desc <description>** • Add a task\n**!task list** • List your tasks\n**!task done <id>** • Complete a task\n**!task remove <id>** • Remove a task', inline: false },
             { name: 'Reminders', value: '**!reminder add <duration|date> <message>** • Set a reminder\n**!reminder list** • List reminders\n**!reminder remove <id>** • Remove a reminder', inline: false },
             { name: 'Stats & Leaderboard', value: '**!checkin** • Daily check-in\n**!stats** • Show your progress\n**!leaderboard** • View the leaderboard categories', inline: false }

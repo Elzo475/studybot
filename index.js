@@ -9,6 +9,9 @@ const voiceStateUpdate = require('./events/voiceStateUpdate');
 const readyEvent = require('./events/ready');
 const { connectDB } = require('./db');
 
+const CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
+const ROOM_INACTIVITY_MS = 10 * 60 * 60 * 1000;
+
 const TOKEN = process.env.TOKEN;
 const PORT = process.env.PORT || 3000;
 const GUILD_ID = process.env.GUILD_ID || null;
@@ -20,6 +23,41 @@ if (!TOKEN) {
 
 const app = express();
 app.use(express.json());
+
+async function cleanupInactivePrivateRooms(client) {
+    const now = Date.now();
+    let dataChanged = false;
+
+    for (const [userId, userData] of Object.entries(storage.data)) {
+        if (!userData.privateCategoryId) continue;
+
+        const lastActive = Math.max(userData.privateCategoryLastActive || 0, userData.privateCategoryCreatedAt || 0);
+        if (!lastActive || now - lastActive < ROOM_INACTIVITY_MS) continue;
+
+        const category = await client.channels.fetch(userData.privateCategoryId).catch(() => null);
+        if (category && category.delete) {
+            await category.delete().catch(() => null);
+        }
+
+        userData.privateCategoryId = null;
+        userData.privateVcId = null;
+        userData.privateTextId = null;
+        userData.privateCategoryCreatedAt = 0;
+        userData.privateCategoryLastActive = 0;
+        dataChanged = true;
+    }
+
+    if (dataChanged) {
+        await storage.saveData();
+    }
+}
+
+function startCleanupLoops(client) {
+    setInterval(() => {
+        sessionManager.cleanupExpiredPausedSessions(client).catch(err => console.error('Session cleanup failed:', err));
+        cleanupInactivePrivateRooms(client).catch(err => console.error('Private room cleanup failed:', err));
+    }, CLEANUP_INTERVAL_MS);
+}
 
 const client = new Client({
     intents: [
@@ -39,6 +77,7 @@ async function init() {
     interactionCreate(client);
     voiceStateUpdate(client);
     await client.login(TOKEN);
+    startCleanupLoops(client);
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
 

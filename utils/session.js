@@ -2,6 +2,9 @@ const { buildStatusEmbed, buildSessionActionRow, buildSessionSummaryEmbed, build
 const storage = require('./storage');
 
 const activeSessions = new Map();
+const SESSION_PAUSE_EXPIRY_MS = 10 * 60 * 60 * 1000;
+const CATEGORY_CLEANUP_DELAY_MS = 60 * 60 * 1000;
+const categoryCleanupTimers = new Map();
 
 function generateSessionId() {
     let id;
@@ -17,6 +20,34 @@ function getSession(sessionId) {
 
 function getAllSessions() {
     return Array.from(activeSessions.values());
+}
+
+function scheduleCategoryDeletion(client, categoryId, delay = CATEGORY_CLEANUP_DELAY_MS) {
+    if (!categoryId || !client) return;
+    const existing = categoryCleanupTimers.get(categoryId);
+    if (existing) {
+        clearTimeout(existing);
+    }
+    const timer = setTimeout(async () => {
+        const category = await client.channels.fetch(categoryId).catch(() => null);
+        if (category && category.delete) {
+            await category.delete().catch(() => null);
+        }
+        categoryCleanupTimers.delete(categoryId);
+    }, delay);
+    categoryCleanupTimers.set(categoryId, timer);
+}
+
+async function cleanupExpiredPausedSessions(client) {
+    const now = Date.now();
+    const sessions = getAllSessions();
+    for (const sessionData of sessions) {
+        if (sessionData.paused && sessionData.pausedAt && now - sessionData.pausedAt >= SESSION_PAUSE_EXPIRY_MS) {
+            await endSession(client, sessionData.id);
+        } else if (!sessionData.started && now - sessionData.createdAt >= SESSION_PAUSE_EXPIRY_MS) {
+            await endSession(client, sessionData.id);
+        }
+    }
 }
 
 function isSessionActive(sessionId) {
@@ -178,11 +209,30 @@ Keep going! Use the buttons below to pause, resume, or end the session.`
         await runPomodoroPhase(client, sessionId);
     }, sessionData.phaseRemainingMs);
 
+    if (sessionData.updateTimer) {
+        clearInterval(sessionData.updateTimer);
+    }
     sessionData.updateTimer = setInterval(async () => {
         await refreshStatusMessage(client, sessionId);
     }, 5 * 60 * 1000);
 }
+async function refreshStatusMessage(client, sessionId) {
+    const session = getSession(sessionId);
+    if (!session || !session.textChannelId || !session.statusMessageId) return false;
 
+    const channel = await client.channels.fetch(session.textChannelId).catch(() => null);
+    if (!channel || !channel.isTextBased?.() || !channel.messages) return false;
+
+    const message = await channel.messages.fetch(session.statusMessageId).catch(() => null);
+    if (!message) return false;
+
+    await message.edit({
+        embeds: [buildStatusEmbed(session)],
+        components: [buildSessionActionRow(sessionId)]
+    }).catch(() => null);
+
+    return true;
+}
 function pauseSession(sessionId) {
     const session = getSession(sessionId);
     if (!session || !session.started || session.paused) return false;
@@ -241,6 +291,9 @@ async function resumeSession(client, sessionId) {
         }, sessionData.remainingMs);
     }
 
+    if (sessionData.updateTimer) {
+        clearInterval(sessionData.updateTimer);
+    }
     sessionData.updateTimer = setInterval(async () => {
         await refreshStatusMessage(client, sessionId);
     }, 5 * 60 * 1000);
@@ -254,14 +307,25 @@ function modifySession(sessionId, updates) {
     if (!session) return false;
     if (session.started && !session.paused) return false;
 
+    if (Array.isArray(updates.pomodoroSets)) {
+        session.pomodoroSets = updates.pomodoroSets;
+        session.totalMs = calculatePomodoroTotalMs(session.pomodoroSets);
+        session.durationMinutes = Math.round(session.totalMs / 60000);
+        session.remainingMs = session.totalMs;
+        session.currentPomodoroIndex = 0;
+        session.currentPhase = 'study';
+        session.phaseRemainingMs = (Number(session.pomodoroSets[0]?.studyMinutes) || 0) * 60 * 1000;
+    }
     if (typeof updates.durationMinutes === 'number' && updates.durationMinutes > 0) {
         session.durationMinutes = updates.durationMinutes;
+        if (!Array.isArray(session.pomodoroSets) || !session.pomodoroSets.length) {
+            session.totalMs = session.durationMinutes * 60 * 1000;
+            session.remainingMs = session.totalMs;
+            session.phaseRemainingMs = session.totalMs;
+        }
     }
     if (typeof updates.isPrivate === 'boolean') {
         session.isPrivate = updates.isPrivate;
-    }
-    if (Array.isArray(updates.pomodoroSets)) {
-        session.pomodoroSets = updates.pomodoroSets;
     }
 
     return true;
@@ -329,10 +393,7 @@ async function endSession(client, sessionId) {
     activeSessions.delete(sessionId);
 
     if (session.cleanupCategory && session.categoryId) {
-        const category = await client.channels.fetch(session.categoryId).catch(() => null);
-        if (category && category.delete) {
-            await category.delete().catch(() => null);
-        }
+        scheduleCategoryDeletion(client, session.categoryId);
     }
 
     return true;
@@ -363,5 +424,6 @@ module.exports = {
     endSession,
     pauseSession,
     resumeSession,
-    modifySession
+    modifySession,
+    cleanupExpiredPausedSessions
 };

@@ -210,7 +210,7 @@ async function resolveVoiceChannel(message, token) {
 async function handleCreateVCCommand(message) {
     const userData = storage.getUserData(message.author.id);
     if (userData.privateCategoryId) {
-        return message.reply({ embeds: [embeds.buildErrorEmbed('You already have a private study room. Use `!deletevc` to remove it first.')] });
+        return message.reply({ embeds: [embeds.buildErrorEmbed('You already have a private study room. Use `!deleteroom` to remove it first.')] });
     }
 
     try {
@@ -250,7 +250,7 @@ async function handleDeleteVCCommand(message) {
 async function handleRenameVCCommand(message, args) {
     const newName = args.join(' ').trim();
     if (!newName) {
-        return message.reply({ embeds: [embeds.buildErrorEmbed('Please provide a new name after `!renamevc`.')] });
+        return message.reply({ embeds: [embeds.buildErrorEmbed('Please provide a new name after `!renameroom`.')] });
     }
 
     const userData = storage.getUserData(message.author.id);
@@ -617,10 +617,14 @@ async function handleStatsCommand(message) {
 }
 
 async function handleLeaderboardCommand(message) {
-    const allUsers = Object.entries(storage.data).map(([userId, userData]) => ({ userId, userData }));
+    const allUsers = Object.entries(storage.data).map(([userId, userData]) => ({
+        userId,
+        userData,
+        weekly: embeds.getPeriodMinutes(userData.dailyStudy, 7),
+        monthly: embeds.getPeriodMinutes(userData.dailyStudy, 30)
+    }));
     const sorted = allUsers
-        .sort((a, b) => (b.userData.streak || 0) - (a.userData.streak || 0))
-        .map(item => [item.userId, item.userData]);
+        .sort((a, b) => (b.userData.streak || 0) - (a.userData.streak || 0));
 
     return message.reply({
         embeds: [embeds.buildLeaderboardEmbed('streaks', sorted, message.author.id)],
@@ -630,23 +634,20 @@ async function handleLeaderboardCommand(message) {
 
 async function handleLeaderboardInteraction(interaction) {
     const category = interaction.customId.replace('leaderboard_', '');
-    const allEntries = Object.entries(storage.data).map(([userId, userData]) => ({ userId, userData }));
-    const processed = allEntries.map(({ userId, userData }) => {
-        const weekly = embeds.getPeriodMinutes(userData.dailyStudy, 7);
-        const monthly = embeds.getPeriodMinutes(userData.dailyStudy, 30);
-        return [userId, { ...userData, weekly, monthly }];
-    });
+    const allUsers = Object.entries(storage.data).map(([userId, userData]) => ({
+        userId,
+        userData,
+        weekly: embeds.getPeriodMinutes(userData.dailyStudy, 7),
+        monthly: embeds.getPeriodMinutes(userData.dailyStudy, 30)
+    }));
 
-    let sorted = [];
-    if (category === 'streaks') {
-        sorted = processed.sort((a, b) => (b[1].streak || 0) - (a[1].streak || 0));
-    } else if (category === 'alltime') {
-        sorted = processed.sort((a, b) => (b[1].totalStudyMinutes || 0) - (a[1].totalStudyMinutes || 0));
-    } else if (category === 'weekly') {
-        sorted = processed.sort((a, b) => (b[1].weekly || 0) - (a[1].weekly || 0));
-    } else if (category === 'monthly') {
-        sorted = processed.sort((a, b) => (b[1].monthly || 0) - (a[1].monthly || 0));
-    }
+    const sorted = allUsers.sort((a, b) => {
+        if (category === 'streaks') return (b.userData.streak || 0) - (a.userData.streak || 0);
+        if (category === 'alltime') return (b.userData.totalStudyMinutes || 0) - (a.userData.totalStudyMinutes || 0);
+        if (category === 'weekly') return (b.weekly || 0) - (a.weekly || 0);
+        if (category === 'monthly') return (b.monthly || 0) - (a.monthly || 0);
+        return 0;
+    });
 
     await interaction.update({
         embeds: [embeds.buildLeaderboardEmbed(category, sorted, interaction.user.id)],

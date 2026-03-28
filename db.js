@@ -1,9 +1,9 @@
 // db.js
 const { MongoClient } = require('mongodb');
 
-const uri = process.env.MONGO_URI;
+const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
 if (!uri) {
-    throw new Error('MONGO_URI must be defined in your environment (.env)');
+    throw new Error('MONGO_URI or MONGODB_URI must be defined in your environment (.env)');
 }
 
 const client = new MongoClient(uri);

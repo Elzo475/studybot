@@ -18,8 +18,18 @@ A Discord study bot for study sessions, goals, tasks, reminders, stats, and voic
   - Use `private` to create or join a private study room.
   - Use `public` to assign a public voice channel.
 
-- `!pomodoro start [private|public] [sets]`
-  - Start a pomodoro-style session with optional mode and number of sets.
+- `!pomodoro list`
+  - Show your saved Pomodoro sets.
+- `!pomodoro add <study> <rest>`
+  - Save a new Pomodoro set.
+- `!pomodoro update <setNumber> <study> <rest>`
+  - Change an existing set.
+- `!pomodoro remove <setNumber>`
+  - Remove a saved Pomodoro set.
+- `!pomodoro clear`
+  - Remove all saved Pomodoro sets.
+- `!pomodoro start [private|public]`
+  - Start a Pomodoro session using your configured sets.
 
 - `!session status [sessionId]`
   - Show the current status of a session.
@@ -101,7 +111,7 @@ A Discord study bot for study sessions, goals, tasks, reminders, stats, and voic
 - Private rooms are created in a dedicated category with a linked chat channel.
 - Session IDs let people join by ID and request access for private sessions.
 - Voice activity is tracked across all voice channels for study time.
-- Private rooms are cleaned up automatically after inactivity.
+- Private rooms and session categories are cleaned up automatically after inactivity.
 
 ## Running the Bot
 
