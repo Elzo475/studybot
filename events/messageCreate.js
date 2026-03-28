@@ -17,6 +17,10 @@ module.exports = (client) => {
                 return handlers.handleCheckinCommand(message);
             case 'startsession':
                 return handlers.handleStartSessionCommand(message, args, client);
+            case 'pomodoro':
+                return handlers.handlePomodoroCommand(message, args, client);
+            case 'session':
+                return handlers.handleSessionCommand(message, args, client);
             case 'join':
                 return handlers.handleJoinCommand(message, args, client);
             case 'status':
@@ -29,10 +33,13 @@ module.exports = (client) => {
                 return handlers.handleStatsCommand(message);
             case 'leaderboard':
                 return handlers.handleLeaderboardCommand(message);
+            case 'createroom':
             case 'createvc':
                 return handlers.handleCreateVCCommand(message);
+            case 'deleteroom':
             case 'deletevc':
                 return handlers.handleDeleteVCCommand(message);
+            case 'renameroom':
             case 'renamevc':
                 return handlers.handleRenameVCCommand(message, args);
             case 'task':

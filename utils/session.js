@@ -27,6 +27,10 @@ function isVoiceChannelInUse(channelId) {
     return getAllSessions().some(session => session.voiceChannelId === channelId);
 }
 
+function getUserSession(userId) {
+    return getAllSessions().find(session => session.hostId === userId || session.participants.has(userId)) || null;
+}
+
 function createUserSessionData(userData, minutes) {
     userData.sessions += 1;
     userData.totalStudyMinutes += minutes;
@@ -36,7 +40,15 @@ function createUserSessionData(userData, minutes) {
     userData.dailyStudy[dayKey] = (userData.dailyStudy[dayKey] || 0) + minutes;
 }
 
-async function startSession({ client, textChannel, hostId, durationMinutes = 50, isPrivate = false, voiceChannelId = null, categoryId = null, cleanupCategory = false }) {
+function calculatePomodoroTotalMs(sets = []) {
+    return sets.reduce((total, set) => {
+        const study = Number(set.studyMinutes) || 0;
+        const rest = Number(set.restMinutes) || 0;
+        return total + study * 60 * 1000 + rest * 60 * 1000;
+    }, 0);
+}
+
+async function startSession({ client, textChannel, hostId, durationMinutes = 50, isPrivate = false, voiceChannelId = null, categoryId = null, cleanupCategory = false, pomodoroSets = [] }) {
     const sessionId = generateSessionId();
     const sessionData = {
         id: sessionId,
@@ -56,12 +68,23 @@ async function startSession({ client, textChannel, hostId, durationMinutes = 50,
         countdownTimer: null,
         updateTimer: null,
         endTimer: null,
-        cleanupCategory
+        phaseTimer: null,
+        cleanupCategory,
+        pomodoroSets,
+        currentPomodoroIndex: 0,
+        currentPhase: null,
+        phaseStartAt: null,
+        phaseRemainingMs: null,
+        totalMs: null,
+        remainingMs: null,
+        paused: false,
+        pausedAt: null,
+        lastActiveAt: null
     };
 
     const startingEmbed = buildInfoEmbed(
         '⏳ Focus Session Incoming',
-        `Session **${sessionId}** will begin in 1 minute. Use the buttons below to join, leave, or confirm completion.`
+        `Session **${sessionId}** will begin in 1 minute. Use the buttons below to join, leave, pause, or confirm completion.`
     );
 
     const statusMessage = await textChannel.send({
@@ -75,42 +98,173 @@ async function startSession({ client, textChannel, hostId, durationMinutes = 50,
     sessionData.countdownTimer = setTimeout(async () => {
         const current = getSession(sessionId);
         if (!current) return;
-        current.started = true;
-        current.startTime = Date.now();
-
-        const liveEmbed = buildInfoEmbed('🚀 Session Started', `Your focus session is live for ${durationMinutes} minutes. Stay on task and check back for progress updates.`);
-        await textChannel.send({ embeds: [liveEmbed] }).catch(() => null);
-        await refreshStatusMessage(client, sessionId);
-
-        current.updateTimer = setInterval(async () => {
-            await refreshStatusMessage(client, sessionId);
-        }, 5 * 60 * 1000);
-
-        current.endTimer = setTimeout(async () => {
-            await endSession(client, sessionId);
-        }, durationMinutes * 60 * 1000);
+        await beginSession(client, current);
     }, 60 * 1000);
 
     await textChannel.send({ embeds: [startingEmbed] });
     return sessionData;
 }
 
-async function refreshStatusMessage(client, sessionId) {
-    const session = getSession(sessionId);
-    if (!session) return;
+async function beginSession(client, sessionData) {
+    if (!sessionData || sessionData.started) return;
+    sessionData.started = true;
+    sessionData.startTime = Date.now();
+    sessionData.lastActiveAt = Date.now();
+    sessionData.paused = false;
 
-    const channel = await client.channels.fetch(session.textChannelId).catch(() => null);
+    if (Array.isArray(sessionData.pomodoroSets) && sessionData.pomodoroSets.length > 0) {
+        sessionData.totalMs = calculatePomodoroTotalMs(sessionData.pomodoroSets);
+        sessionData.remainingMs = sessionData.totalMs;
+        sessionData.currentPomodoroIndex = 0;
+        sessionData.currentPhase = 'study';
+        sessionData.phaseStartAt = Date.now();
+        sessionData.phaseRemainingMs = (Number(sessionData.pomodoroSets[0].studyMinutes) || 0) * 60 * 1000;
+        await runPomodoroPhase(client, sessionData.id);
+    } else {
+        sessionData.totalMs = sessionData.durationMinutes * 60 * 1000;
+        sessionData.remainingMs = sessionData.totalMs;
+        sessionData.phaseStartAt = Date.now();
+        sessionData.phaseRemainingMs = sessionData.totalMs;
+        sessionData.endTimer = setTimeout(async () => {
+            await endSession(client, sessionData.id);
+        }, sessionData.remainingMs);
+        sessionData.updateTimer = setInterval(async () => {
+            await refreshStatusMessage(client, sessionData.id);
+        }, 5 * 60 * 1000);
+        await refreshStatusMessage(client, sessionData.id);
+        const liveEmbed = buildInfoEmbed('🚀 Session Started', `Your focus session is live for ${sessionData.durationMinutes} minutes. Stay on task and check back for progress updates.`);
+        const channel = await client.channels.fetch(sessionData.textChannelId).catch(() => null);
+        if (channel) channel.send({ embeds: [liveEmbed] }).catch(() => null);
+    }
+}
+
+async function runPomodoroPhase(client, sessionId) {
+    const sessionData = getSession(sessionId);
+    if (!sessionData || sessionData.paused) return;
+
+    const setIndex = sessionData.currentPomodoroIndex;
+    if (setIndex >= sessionData.pomodoroSets.length) {
+        return endSession(client, sessionId);
+    }
+
+    const set = sessionData.pomodoroSets[setIndex];
+    const phase = sessionData.currentPhase || 'study';
+    const durationMinutes = phase === 'study' ? Number(set.studyMinutes) || 0 : Number(set.restMinutes) || 0;
+    const phaseLabel = phase === 'study' ? 'Study' : 'Rest';
+    const channel = await client.channels.fetch(sessionData.textChannelId).catch(() => null);
+
     if (!channel) return;
 
-    try {
-        const message = await channel.messages.fetch(session.statusMessageId);
-        await message.edit({
-            embeds: [buildStatusEmbed(session)],
-            components: [buildSessionActionRow(sessionId)]
-        });
-    } catch (error) {
-        console.error('Failed to refresh session status message:', error);
+    const phaseEmbed = buildInfoEmbed(
+        `⏱️ Pomodoro ${phaseLabel} Time`,
+        `Set ${setIndex + 1}: ${durationMinutes} minutes of ${phaseLabel.toLowerCase()}.
+
+Keep going! Use the buttons below to pause, resume, or end the session.`
+    );
+    await channel.send({ embeds: [phaseEmbed] }).catch(() => null);
+
+    sessionData.phaseStartAt = Date.now();
+    sessionData.phaseRemainingMs = durationMinutes * 60 * 1000;
+    sessionData.currentPhase = phase;
+    sessionData.phaseTimer = setTimeout(async () => {
+        sessionData.remainingMs = Math.max(0, sessionData.remainingMs - sessionData.phaseRemainingMs);
+        if (phase === 'study' && Number(set.restMinutes) > 0) {
+            sessionData.currentPhase = 'rest';
+        } else {
+            sessionData.currentPomodoroIndex += 1;
+            sessionData.currentPhase = 'study';
+        }
+        await refreshStatusMessage(client, sessionId);
+        await runPomodoroPhase(client, sessionId);
+    }, sessionData.phaseRemainingMs);
+
+    sessionData.updateTimer = setInterval(async () => {
+        await refreshStatusMessage(client, sessionId);
+    }, 5 * 60 * 1000);
+}
+
+function pauseSession(sessionId) {
+    const session = getSession(sessionId);
+    if (!session || !session.started || session.paused) return false;
+
+    session.paused = true;
+    session.pausedAt = Date.now();
+    session.lastActiveAt = Date.now();
+
+    if (session.phaseTimer) {
+        clearTimeout(session.phaseTimer);
+        const elapsed = Date.now() - session.phaseStartAt;
+        session.phaseRemainingMs = Math.max(0, session.phaseRemainingMs - elapsed);
     }
+
+    if (session.endTimer) {
+        clearTimeout(session.endTimer);
+        const elapsed = Date.now() - session.phaseStartAt;
+        session.remainingMs = Math.max(0, session.remainingMs - elapsed);
+    }
+
+    if (session.updateTimer) {
+        clearInterval(session.updateTimer);
+    }
+
+    return true;
+}
+
+async function resumeSession(client, sessionId) {
+    const sessionData = getSession(sessionId);
+    if (!sessionData || !sessionData.started || !sessionData.paused) return false;
+    if (Date.now() - sessionData.pausedAt > 10 * 60 * 60 * 1000) {
+        await endSession(client, sessionId);
+        return false;
+    }
+
+    sessionData.paused = false;
+    sessionData.lastActiveAt = Date.now();
+    sessionData.phaseStartAt = Date.now();
+
+    if (Array.isArray(sessionData.pomodoroSets) && sessionData.pomodoroSets.length > 0) {
+        sessionData.phaseTimer = setTimeout(async () => {
+            sessionData.remainingMs = Math.max(0, sessionData.remainingMs - sessionData.phaseRemainingMs);
+            const currentSet = sessionData.pomodoroSets[sessionData.currentPomodoroIndex];
+            if (sessionData.currentPhase === 'study' && Number(currentSet.restMinutes) > 0) {
+                sessionData.currentPhase = 'rest';
+            } else {
+                sessionData.currentPomodoroIndex += 1;
+                sessionData.currentPhase = 'study';
+            }
+            await refreshStatusMessage(client, sessionId);
+            await runPomodoroPhase(client, sessionId);
+        }, sessionData.phaseRemainingMs);
+    } else {
+        sessionData.endTimer = setTimeout(async () => {
+            await endSession(client, sessionId);
+        }, sessionData.remainingMs);
+    }
+
+    sessionData.updateTimer = setInterval(async () => {
+        await refreshStatusMessage(client, sessionId);
+    }, 5 * 60 * 1000);
+
+    await refreshStatusMessage(client, sessionId);
+    return true;
+}
+
+function modifySession(sessionId, updates) {
+    const session = getSession(sessionId);
+    if (!session) return false;
+    if (session.started && !session.paused) return false;
+
+    if (typeof updates.durationMinutes === 'number' && updates.durationMinutes > 0) {
+        session.durationMinutes = updates.durationMinutes;
+    }
+    if (typeof updates.isPrivate === 'boolean') {
+        session.isPrivate = updates.isPrivate;
+    }
+    if (Array.isArray(updates.pomodoroSets)) {
+        session.pomodoroSets = updates.pomodoroSets;
+    }
+
+    return true;
 }
 
 function joinSession(userId, sessionId) {
@@ -190,6 +344,7 @@ function cleanupTimers(sessionId) {
     if (session.countdownTimer) clearTimeout(session.countdownTimer);
     if (session.updateTimer) clearInterval(session.updateTimer);
     if (session.endTimer) clearTimeout(session.endTimer);
+    if (session.phaseTimer) clearTimeout(session.phaseTimer);
 }
 
 module.exports = {
@@ -197,6 +352,7 @@ module.exports = {
     getAllSessions,
     isSessionActive,
     isVoiceChannelInUse,
+    getUserSession,
     startSession,
     refreshStatusMessage,
     joinSession,
@@ -204,5 +360,8 @@ module.exports = {
     confirmCompletion,
     addJoinRequest,
     approveJoinRequest,
-    endSession
+    endSession,
+    pauseSession,
+    resumeSession,
+    modifySession
 };

@@ -5,8 +5,8 @@ A Discord study bot for study sessions, goals, tasks, reminders, stats, and voic
 ## What Changed
 
 - All features are free and accessible to everyone.
-- Premium gating has been disabled temporarily, while core structures remain in place for later reactivation.
-- New commands now support private study rooms, session IDs, multi-session handling, tasks, reminders, and leaderboard categories.
+- Premium gating has been disabled while the bot remains ready for future upgrades.
+- New commands support private study rooms, session pause/resume/cancel, pomodoro mode, and leaderboard categories.
 
 ## Available Commands
 
@@ -15,26 +15,37 @@ A Discord study bot for study sessions, goals, tasks, reminders, stats, and voic
 - `!startsession [duration] [private|public] [voiceChannel]`
   - Start a new focus session.
   - Default duration is 50 minutes.
-  - Use `private` to create or use a private study room.
+  - Use `private` to create or join a private study room.
   - Use `public` to assign a public voice channel.
+
+- `!pomodoro start [private|public] [sets]`
+  - Start a pomodoro-style session with optional mode and number of sets.
+
+- `!session status [sessionId]`
+  - Show the current status of a session.
+
+- `!session pause [sessionId]`
+  - Pause an active session.
+
+- `!session resume [sessionId]`
+  - Resume a paused session.
+
+- `!session cancel [sessionId]`
+  - Cancel a session before it ends.
 
 - `!join <sessionId>`
   - Join a session by its ID.
-  - Private sessions send a join request to the host.
-
-- `!status <sessionId>`
-  - Resend the status of a session.
 
 - `!endsession <sessionId>`
-  - End your own session and record study time.
+  - End your session and record study time.
 
-- `!createvc`
+- `!createroom`
   - Create a private category with a voice channel and text channel.
 
-- `!deletevc`
+- `!deleteroom`
   - Delete your private study room.
 
-- `!renamevc <name>`
+- `!renameroom <name>`
   - Rename your private study room.
 
 - `!invite <sessionId> @user`

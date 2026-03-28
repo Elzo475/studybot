@@ -34,10 +34,12 @@ function buildStatusEmbed(session) {
             { name: 'Host', value: `<@${session.hostId}>`, inline: true },
             { name: 'Session ID', value: `${session.id}`, inline: true },
             { name: 'Mode', value: session.isPrivate ? 'Private' : 'Public', inline: true },
+            { name: 'Status', value: session.paused ? 'Paused' : session.started ? 'Active' : 'Preparing', inline: true },
             { name: 'Voice Channel', value: session.voiceChannelId ? `<#${session.voiceChannelId}>` : 'Not assigned', inline: true },
             { name: 'Text Channel', value: session.textChannelId ? `<#${session.textChannelId}>` : 'Not assigned', inline: true },
             { name: 'Participants', value: `${session.participants.size}`, inline: true },
             { name: 'Duration', value: `${session.durationMinutes} minutes`, inline: true },
+            { name: 'Phase', value: session.currentPhase ? `${session.currentPhase} ${session.currentPomodoroIndex !== undefined ? `(${session.currentPomodoroIndex + 1}/${(session.pomodoroSets || []).length || 1})` : ''}` : 'Standard', inline: true },
             { name: 'Started', value: formatTimestamp(session.startTime), inline: true },
             { name: 'Remaining', value: session.started ? `${remaining} min` : 'Starting soon', inline: true }
         )
@@ -55,9 +57,17 @@ function buildSessionActionRow(sessionId) {
             .setLabel('Leave Session')
             .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
-            .setCustomId(`confirm_session:${sessionId}`)
-            .setLabel('✅ Confirm Completion')
-            .setStyle(ButtonStyle.Success)
+            .setCustomId(`pause_session:${sessionId}`)
+            .setLabel('Pause Session')
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId(`resume_session:${sessionId}`)
+            .setLabel('Resume Session')
+            .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+            .setCustomId(`cancel_session:${sessionId}`)
+            .setLabel('Cancel Session')
+            .setStyle(ButtonStyle.Danger)
     );
 }
 
@@ -192,14 +202,14 @@ function buildHelpEmbed() {
     return new EmbedBuilder()
         .setTitle('📚 StudyBot Commands')
         .setColor(0x0099ff)
-        .setDescription('Everything is free now. Use the commands below to manage sessions, goals, tasks, reminders, and study stats.')
+        .setDescription('Everything is free now. Use the commands below to manage sessions, rooms, goals, tasks, reminders, and study stats.')
         .addFields(
-            { name: 'Session Management', value: '**!startsession [duration] [private|public] [voiceChannel]** • Start a new session\n**!join <sessionId>** • Join a session by ID\n**!status <sessionId>** • Resend the session status\n**!endsession <sessionId>** • End your session\n**!createvc** • Create a private voice + chat room\n**!deletevc** • Delete your private room\n**!renamevc <name>** • Rename your private space\n**!invite <sessionId> @user** • Grant access to a private session', inline: false },
-            { name: 'Goals & Tasks', value: '**!goal <goal> /by YYYY-MM-DD /desc <description>** • Set a dated goal\n**!done** • Mark your goal complete\n**!task add <task> /by YYYY-MM-DD /desc <description>** • Add a task\n**!task list** • List your tasks\n**!task done <id>** • Mark task complete\n**!task remove <id>** • Remove a task', inline: false },
-            { name: 'Reminders', value: '**!reminder add <duration|date> <message>** • Set a reminder\n**!reminder list** • List your reminders\n**!reminder remove <id>** • Remove a reminder', inline: false },
-            { name: 'Stats & Leaderboard', value: '**!checkin** • Daily check-in\n**!stats** • Show your progress\n**!leaderboard** • View the leaderboard with category buttons', inline: false }
+            { name: 'Session & Room Management', value: '**!startsession [duration] [private|public] [voiceChannel]** • Start a new focus session\n**!pomodoro start [private|public] [sets]** • Start a Pomodoro session\n**!session status [sessionId]** • Show a session status\n**!session pause [sessionId]** • Pause an active session\n**!session resume [sessionId]** • Resume a paused session\n**!session cancel [sessionId]** • Cancel a session\n**!join <sessionId>** • Join a session by ID\n**!endsession <sessionId>** • End your session\n**!createroom** • Create a private study room\n**!deleteroom** • Delete your private room\n**!renameroom <name>** • Rename your private room\n**!invite <sessionId> @user** • Invite a user to a private session', inline: false },
+            { name: 'Goals & Tasks', value: '**!goal <goal> /by YYYY-MM-DD /desc <description>** • Set a goal\n**!done** • Mark a goal complete\n**!task add <task> /by YYYY-MM-DD /desc <description>** • Add a task\n**!task list** • List your tasks\n**!task done <id>** • Complete a task\n**!task remove <id>** • Remove a task', inline: false },
+            { name: 'Reminders', value: '**!reminder add <duration|date> <message>** • Set a reminder\n**!reminder list** • List reminders\n**!reminder remove <id>** • Remove a reminder', inline: false },
+            { name: 'Stats & Leaderboard', value: '**!checkin** • Daily check-in\n**!stats** • Show your progress\n**!leaderboard** • View the leaderboard categories', inline: false }
         )
-        .setFooter({ text: 'Tip: use session IDs when joining and inviting members.' })
+        .setFooter({ text: 'Tip: use session IDs and room invites to connect with other students.' })
         .setTimestamp();
 }
 

@@ -56,6 +56,19 @@ function extractMentionId(token) {
     return mentionMatch ? mentionMatch[1] : token;
 }
 
+function getPomodoroTotalMinutes(sets = []) {
+    return sets.reduce((sum, set) => {
+        const study = Number(set.studyMinutes) || 0;
+        const rest = Number(set.restMinutes) || 0;
+        return sum + study + rest;
+    }, 0);
+}
+
+function formatPomodoroSets(sets = []) {
+    if (!sets.length) return 'No pomodoro sets configured yet.';
+    return sets.map((set, index) => `Set ${index + 1}: ${set.studyMinutes} min study / ${set.restMinutes} min rest`).join('\n');
+}
+
 async function awardStreakReward(member, userData, message) {
     if (!member) return;
     const streak = userData.streak;
@@ -251,16 +264,31 @@ async function handleRenameVCCommand(message, args) {
 }
 
 async function handleStartSessionCommand(message, args, client) {
+    const existingSession = session.getUserSession(message.author.id);
+    if (existingSession) {
+        return message.reply({ embeds: [embeds.buildErrorEmbed('You are already in an active session. You must finish or pause it before starting a new one.')] });
+    }
+
     const userData = storage.getUserData(message.author.id);
     const durationArg = args.find(arg => !isNaN(parseInt(arg, 10)));
-    const duration = durationArg ? Math.min(Math.max(parseInt(durationArg, 10), 10), 180) : 50;
+    let duration = durationArg ? Math.min(Math.max(parseInt(durationArg, 10), 10), 180) : 50;
     const privateFlag = args.some(arg => arg.toLowerCase() === 'private');
     const publicFlag = args.some(arg => arg.toLowerCase() === 'public');
+    const pomodoroFlag = args.some(arg => ['pomodoro', 'pomo'].includes(arg.toLowerCase()));
     const voiceArgIndex = args.findIndex(arg => arg.toLowerCase() === 'public');
     let voiceChannel = null;
     let cleanupCategory = false;
     let categoryId = null;
     let textChannel = message.channel;
+    let pomodoroSets = [];
+
+    if (pomodoroFlag) {
+        pomodoroSets = Array.isArray(userData.pomodoroSets) ? userData.pomodoroSets : [];
+        if (!pomodoroSets.length) {
+            return message.reply({ embeds: [embeds.buildErrorEmbed('You have no pomodoro sets configured. Use `!pomodoro add <studyMinutes> <restMinutes>` to create them first.')] });
+        }
+        duration = pomodoroSets.reduce((sum, set) => sum + (Number(set.studyMinutes) || 0) + (Number(set.restMinutes) || 0), 0);
+    }
 
     if (privateFlag) {
         if (userData.privateCategoryId && userData.privateTextId && userData.privateVcId) {
@@ -297,7 +325,8 @@ async function handleStartSessionCommand(message, args, client) {
         isPrivate: privateFlag,
         voiceChannelId: voiceChannel ? voiceChannel.id : null,
         categoryId,
-        cleanupCategory
+        cleanupCategory,
+        pomodoroSets
     }).catch(error => {
         console.error('Session start failure:', error);
         return null;
@@ -310,6 +339,7 @@ async function handleStartSessionCommand(message, args, client) {
     const infoLines = [`✅ Session **${sessionData.id}** is starting in 1 minute.`];
     if (privateFlag) infoLines.push('Your private session is ready. Invite members with `!invite <sessionId> @user`.');
     if (voiceChannel) infoLines.push(`Voice channel: <#${voiceChannel.id}>`);
+    if (pomodoroFlag) infoLines.push('Pomodoro flow is enabled for this session.');
 
     return message.reply({ embeds: [embeds.buildInfoEmbed('Session Ready', infoLines.join('\n'))] });
 }
@@ -406,6 +436,156 @@ async function handleStatusCommand(message, args) {
     }
 
     return message.reply({ embeds: [embeds.buildStatusEmbed(active)] });
+}
+
+async function handlePomodoroCommand(message, args, client) {
+    const userId = message.author.id;
+    const userData = storage.getUserData(userId);
+    const action = args[0] ? args[0].toLowerCase() : 'help';
+
+    if (action === 'list' || action === 'show') {
+        const sets = Array.isArray(userData.pomodoroSets) ? userData.pomodoroSets : [];
+        return message.reply({ embeds: [embeds.buildInfoEmbed('Pomodoro Sets', formatPomodoroSets(sets))] });
+    }
+
+    if (action === 'add') {
+        const study = Number(args[1]);
+        const rest = Number(args[2]);
+        if (!study || !rest) {
+            return message.reply({ embeds: [embeds.buildErrorEmbed('Usage: !pomodoro add <studyMinutes> <restMinutes>')] });
+        }
+        userData.pomodoroSets = userData.pomodoroSets || [];
+        userData.pomodoroSets.push({ studyMinutes: study, restMinutes: rest });
+        await storage.saveData();
+        return message.reply({ embeds: [embeds.buildInfoEmbed('Pomodoro Set Added', `✅ Set ${userData.pomodoroSets.length} configured for ${study}m study / ${rest}m rest.`)] });
+    }
+
+    if (action === 'remove') {
+        const index = Number(args[1]) - 1;
+        if (!Number.isInteger(index) || index < 0 || !userData.pomodoroSets?.[index]) {
+            return message.reply({ embeds: [embeds.buildErrorEmbed('Usage: !pomodoro remove <setNumber>')] });
+        }
+        const removed = userData.pomodoroSets.splice(index, 1)[0];
+        await storage.saveData();
+        return message.reply({ embeds: [embeds.buildInfoEmbed('Pomodoro Set Removed', `🗑️ Removed set ${index + 1}: ${removed.studyMinutes}m study / ${removed.restMinutes}m rest.`)] });
+    }
+
+    if (action === 'update') {
+        const index = Number(args[1]) - 1;
+        const study = Number(args[2]);
+        const rest = Number(args[3]);
+        if (!Number.isInteger(index) || index < 0 || !userData.pomodoroSets?.[index] || !study || !rest) {
+            return message.reply({ embeds: [embeds.buildErrorEmbed('Usage: !pomodoro update <setNumber> <studyMinutes> <restMinutes>')] });
+        }
+        userData.pomodoroSets[index] = { studyMinutes: study, restMinutes: rest };
+        await storage.saveData();
+        return message.reply({ embeds: [embeds.buildInfoEmbed('Pomodoro Set Updated', `✅ Set ${index + 1} now uses ${study}m study / ${rest}m rest.`)] });
+    }
+
+    if (action === 'clear') {
+        userData.pomodoroSets = [];
+        await storage.saveData();
+        return message.reply({ embeds: [embeds.buildInfoEmbed('Pomodoro Cleared', 'All pomodoro sets have been removed.')] });
+    }
+
+    if (action === 'start') {
+        return handleStartSessionCommand(message, [...args.slice(1), 'pomodoro'], client);
+    }
+
+    return message.reply({ embeds: [embeds.buildInfoEmbed('Pomodoro Commands', '**!pomodoro list** • Show current sets\n**!pomodoro add <study> <rest>** • Add a new set\n**!pomodoro update <setNumber> <study> <rest>** • Change an existing set\n**!pomodoro remove <setNumber>** • Remove a set\n**!pomodoro clear** • Clear all sets\n**!pomodoro start [private|public]** • Start a pomodoro session using your configured sets')] });
+}
+
+async function handleSessionCommand(message, args, client) {
+    const userId = message.author.id;
+    const action = args[0] ? args[0].toLowerCase() : 'help';
+    const targetId = args[1] && !['duration', 'private', 'public'].includes(args[1].toLowerCase()) ? args[1] : null;
+    const sessionId = targetId || session.getUserSession(userId)?.id;
+    const active = sessionId ? session.getSession(sessionId) : null;
+
+    if (action === 'help' || !action || ['help', 'commands'].includes(action)) {
+        return message.reply({ embeds: [embeds.buildInfoEmbed('Session Commands', '**!session status [id]** • Get current session status\n**!session pause [id]** • Pause your session\n**!session resume [id]** • Resume a paused session\n**!session cancel [id]** • Cancel an active session\n**!session restart [id]** • Restart the session\n**!session modify [id] duration <minutes>** • Update the session duration\n**!session list** • List active sessions')] });
+    }
+
+    if (action === 'list') {
+        const activeSessions = session.getAllSessions();
+        if (!activeSessions.length) {
+            return message.reply({ embeds: [embeds.buildInfoEmbed('Active Sessions', 'There are no active sessions right now.')] });
+        }
+        const lines = activeSessions.map(item => `**${item.id}** • Host: <@${item.hostId}> • Participants: ${item.participants.size} • ${item.isPrivate ? 'Private' : 'Public'}`).join('\n');
+        return message.reply({ embeds: [embeds.buildInfoEmbed('Active Sessions', lines)] });
+    }
+
+    if (action === 'status') {
+        const target = sessionId ? session.getSession(sessionId) : session.getUserSession(userId);
+        if (!target) return message.reply({ embeds: [embeds.buildErrorEmbed('No active session found for you or that ID.')] });
+        return message.reply({ embeds: [embeds.buildStatusEmbed(target)] });
+    }
+
+    if (!active) {
+        return message.reply({ embeds: [embeds.buildErrorEmbed('Session not found. Provide a valid session ID or use your active session.')] });
+    }
+
+    const isHost = active.hostId === userId;
+    if (['pause', 'resume', 'cancel', 'restart', 'modify'].includes(action) && !isHost) {
+        return message.reply({ embeds: [embeds.buildErrorEmbed('Only the session host can change the session state.')] });
+    }
+
+    if (action === 'pause') {
+        const paused = session.pauseSession(active.id);
+        if (!paused) return message.reply({ embeds: [embeds.buildErrorEmbed('Unable to pause the session. It may already be paused or finished.')] });
+        return message.reply({ embeds: [embeds.buildInfoEmbed('Session Paused', `Session **${active.id}** is paused. Resume within 10 hours or it will be cleared automatically.`)] });
+    }
+
+    if (action === 'resume') {
+        const resumed = await session.resumeSession(client, active.id);
+        if (!resumed) {
+            return message.reply({ embeds: [embeds.buildErrorEmbed('Unable to resume the session. It may have expired or already ended.')] });
+        }
+        return message.reply({ embeds: [embeds.buildInfoEmbed('Session Resumed', `Session **${active.id}** is back on track.`)] });
+    }
+
+    if (action === 'cancel') {
+        await session.endSession(client, active.id);
+        return message.reply({ embeds: [embeds.buildInfoEmbed('Session Cancelled', `Session **${active.id}** has been cancelled and cleaned up.`)] });
+    }
+
+    if (action === 'restart') {
+        const copied = {
+            client,
+            textChannel: await client.channels.fetch(active.textChannelId).catch(() => null),
+            hostId: active.hostId,
+            durationMinutes: active.durationMinutes,
+            isPrivate: active.isPrivate,
+            voiceChannelId: active.voiceChannelId,
+            categoryId: active.categoryId,
+            cleanupCategory: active.cleanupCategory,
+            pomodoroSets: active.pomodoroSets || []
+        };
+        await session.endSession(client, active.id);
+        if (!copied.textChannel) {
+            return message.reply({ embeds: [embeds.buildErrorEmbed('Unable to restart because the original text channel is unavailable.')] });
+        }
+        const newSession = await session.startSession(copied).catch(() => null);
+        if (!newSession) {
+            return message.reply({ embeds: [embeds.buildErrorEmbed('Failed to restart the session.')] });
+        }
+        return message.reply({ embeds: [embeds.buildInfoEmbed('Session Restarted', `Session **${newSession.id}** has been created with the same settings.`)] });
+    }
+
+    if (action === 'modify') {
+        const modifier = args[targetId ? 2 : 1]?.toLowerCase();
+        const value = args[targetId ? 3 : 2];
+        if (modifier !== 'duration' || !value || Number.isNaN(Number(value))) {
+            return message.reply({ embeds: [embeds.buildErrorEmbed('Usage: !session modify <id> duration <minutes>')] });
+        }
+        const updated = session.modifySession(active.id, { durationMinutes: Number(value) });
+        if (!updated) {
+            return message.reply({ embeds: [embeds.buildErrorEmbed('Unable to modify the session. It may already be active or paused.')] });
+        }
+        return message.reply({ embeds: [embeds.buildInfoEmbed('Session Updated', `Session **${active.id}** duration set to ${value} minutes.`)] });
+    }
+
+    return message.reply({ embeds: [embeds.buildErrorEmbed('Unknown session command. Use `!session help` for available options.')] });
 }
 
 async function handleEndSessionCommand(message, args, client) {
@@ -578,6 +758,8 @@ module.exports = {
     handleCreateVCCommand,
     handleDeleteVCCommand,
     handleRenameVCCommand,
+    handlePomodoroCommand,
+    handleSessionCommand,
     handleTaskCommand,
     handleReminderCommand
 };

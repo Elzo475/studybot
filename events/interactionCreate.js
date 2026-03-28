@@ -65,6 +65,45 @@ module.exports = (client) => {
             return interaction.reply({ content: '✅ Session confirmed! Your progress is noted.', ephemeral: true });
         }
 
+        if (customId.startsWith('pause_session:')) {
+            const sessionId = customId.split(':')[1];
+            const active = session.getSession(sessionId);
+            if (!active) {
+                return interaction.reply({ content: '❌ Session not found.', ephemeral: true });
+            }
+            if (active.hostId !== userId) {
+                return interaction.reply({ content: 'Only the host can pause the session.', ephemeral: true });
+            }
+            const paused = session.pauseSession(sessionId);
+            return interaction.reply({ content: paused ? '⏸️ Session paused. Resume when ready.' : '❌ Unable to pause the session.', ephemeral: true });
+        }
+
+        if (customId.startsWith('resume_session:')) {
+            const sessionId = customId.split(':')[1];
+            const active = session.getSession(sessionId);
+            if (!active) {
+                return interaction.reply({ content: '❌ Session not found.', ephemeral: true });
+            }
+            if (active.hostId !== userId) {
+                return interaction.reply({ content: 'Only the host can resume the session.', ephemeral: true });
+            }
+            const resumed = await session.resumeSession(client, sessionId);
+            return interaction.reply({ content: resumed ? '▶️ Session resumed.' : '❌ Unable to resume the session. It may have expired.', ephemeral: true });
+        }
+
+        if (customId.startsWith('cancel_session:')) {
+            const sessionId = customId.split(':')[1];
+            const active = session.getSession(sessionId);
+            if (!active) {
+                return interaction.reply({ content: '❌ Session not found.', ephemeral: true });
+            }
+            if (active.hostId !== userId) {
+                return interaction.reply({ content: 'Only the host can cancel the session.', ephemeral: true });
+            }
+            await session.endSession(client, sessionId);
+            return interaction.reply({ content: '🗑️ Session cancelled and cleaned up.', ephemeral: true });
+        }
+
         if (customId.startsWith('leaderboard_')) {
             return handlers.handleLeaderboardInteraction(interaction);
         }
